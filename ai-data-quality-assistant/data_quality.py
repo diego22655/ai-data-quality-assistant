@@ -1,10 +1,24 @@
-"""Deterministic data-quality checks and configurable column-level rules."""
+"""Deterministic data-quality checks, configurable rules, and report metadata."""
 from __future__ import annotations
 
 import re
 from typing import Any
 
 import pandas as pd
+
+HIGH_SEVERITY = {
+    "Required column missing values",
+    "Custom uniqueness rule",
+    "Numeric range violation",
+    "Disallowed values",
+}
+MEDIUM_SEVERITY = {
+    "Missing values",
+    "Duplicate rows",
+    "Repeated identifier",
+    "Inconsistent column names",
+    "Potential numeric outliers",
+}
 
 
 def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str, pd.DataFrame]]:
@@ -16,9 +30,7 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
         if count:
             key = f"Missing values — {col}"
             findings.append({
-                "issue": "Missing values",
-                "column": str(col),
-                "count": count,
+                "issue": "Missing values", "column": str(col), "count": count,
                 "details": f"{count} missing value(s) in column '{col}'.",
             })
             details[key] = df[df[col].isna()].copy()
@@ -27,9 +39,7 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
     duplicate_count = int(df.duplicated(keep="first").sum())
     if duplicate_count:
         findings.append({
-            "issue": "Duplicate rows",
-            "column": "All columns",
-            "count": duplicate_count,
+            "issue": "Duplicate rows", "column": "All columns", "count": duplicate_count,
             "details": f"{duplicate_count} repeated row(s), excluding the first occurrence.",
         })
         details["Duplicate rows"] = df[duplicate_mask].copy()
@@ -41,9 +51,7 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
             if count:
                 key = f"Repeated identifier — {col}"
                 findings.append({
-                    "issue": "Repeated identifier",
-                    "column": str(col),
-                    "count": count,
+                    "issue": "Repeated identifier", "column": str(col), "count": count,
                     "details": f"{count} repeated value(s) in likely identifier column '{col}'.",
                 })
                 details[key] = df[dup_mask].copy()
@@ -54,8 +62,7 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
     ]
     if bad_columns:
         findings.append({
-            "issue": "Inconsistent column names",
-            "column": ", ".join(bad_columns),
+            "issue": "Inconsistent column names", "column": ", ".join(bad_columns),
             "count": len(bad_columns),
             "details": "Column names contain spaces, leading/trailing whitespace, or uppercase characters.",
         })
@@ -75,20 +82,17 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
         if count:
             key = f"Potential numeric outliers — {col}"
             findings.append({
-                "issue": "Potential numeric outliers",
-                "column": str(col),
-                "count": count,
+                "issue": "Potential numeric outliers", "column": str(col), "count": count,
                 "details": f"{count} value(s) outside the IQR range [{lower:.3g}, {upper:.3g}]. Review before changing data.",
             })
             details[key] = df[mask].copy()
 
-    return findings, details
+    return enrich_findings(findings), details
 
 
 def validate_with_rules(
     df: pd.DataFrame, rules: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], dict[str, pd.DataFrame]]:
-    """Validate a dataframe against user-configured rules."""
     findings: list[dict[str, Any]] = []
     details: dict[str, pd.DataFrame] = {}
 
@@ -100,9 +104,7 @@ def validate_with_rules(
         if count:
             key = f"Required column missing values — {col}"
             findings.append({
-                "issue": "Required column missing values",
-                "column": str(col),
-                "count": count,
+                "issue": "Required column missing values", "column": str(col), "count": count,
                 "details": f"{count} row(s) have missing values in required column '{col}'.",
             })
             details[key] = df[mask].copy()
@@ -115,9 +117,7 @@ def validate_with_rules(
         if count:
             key = f"Custom uniqueness rule — {col}"
             findings.append({
-                "issue": "Custom uniqueness rule",
-                "column": str(col),
-                "count": count,
+                "issue": "Custom uniqueness rule", "column": str(col), "count": count,
                 "details": f"{count} repeated value(s) violate the configured uniqueness rule for '{col}'.",
             })
             details[key] = df[mask].copy()
@@ -125,8 +125,7 @@ def validate_with_rules(
     for col, limits in rules.get("numeric_ranges", {}).items():
         if col not in df.columns or not pd.api.types.is_numeric_dtype(df[col]):
             continue
-        lower = limits.get("min")
-        upper = limits.get("max")
+        lower, upper = limits.get("min"), limits.get("max")
         mask = pd.Series(False, index=df.index)
         if lower is not None:
             mask |= df[col].notna() & (df[col] < lower)
@@ -136,9 +135,7 @@ def validate_with_rules(
         if count:
             key = f"Numeric range violation — {col}"
             findings.append({
-                "issue": "Numeric range violation",
-                "column": str(col),
-                "count": count,
+                "issue": "Numeric range violation", "column": str(col), "count": count,
                 "details": f"{count} value(s) fall outside the configured range [{lower}, {upper}] for '{col}'.",
             })
             details[key] = df[mask].copy()
@@ -152,14 +149,40 @@ def validate_with_rules(
         if count:
             key = f"Disallowed values — {col}"
             findings.append({
-                "issue": "Disallowed values",
-                "column": str(col),
-                "count": count,
+                "issue": "Disallowed values", "column": str(col), "count": count,
                 "details": f"{count} value(s) are not in the configured allowed-value list for '{col}'.",
             })
             details[key] = df[mask].copy()
 
-    return findings, details
+    return enrich_findings(findings), details
+
+
+def enrich_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add stable-per-report IDs and consistent severity labels."""
+    enriched = []
+    for index, finding in enumerate(findings, start=1):
+        issue = finding["issue"]
+        if issue in HIGH_SEVERITY:
+            severity = "High"
+        elif issue in MEDIUM_SEVERITY:
+            severity = "Medium"
+        else:
+            severity = "Low"
+        enriched.append({
+            "finding_id": f"DQ-{index:03d}",
+            **finding,
+            "severity": severity,
+        })
+    return enriched
+
+
+def build_quality_status(findings: list[dict[str, Any]]) -> str:
+    """Return FAIL for high-severity findings, warnings for other findings, else PASS."""
+    if any(item.get("severity") == "High" for item in findings):
+        return "FAIL"
+    if findings:
+        return "PASS WITH WARNINGS"
+    return "PASS"
 
 
 def build_summary(df: pd.DataFrame, findings: list[dict[str, Any]]) -> dict[str, Any]:
