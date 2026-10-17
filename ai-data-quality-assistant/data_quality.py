@@ -3,11 +3,8 @@ from __future__ import annotations
 
 import re
 from typing import Any
+
 import pandas as pd
-
-
-def _safe_key(text: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_-]+", "_", text).strip("_") or "finding"
 
 
 def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str, pd.DataFrame]]:
@@ -15,7 +12,6 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
     findings: list[dict[str, Any]] = []
     details: dict[str, pd.DataFrame] = {}
 
-    # Missing values, by column
     for col in df.columns:
         count = int(df[col].isna().sum())
         if count:
@@ -28,7 +24,6 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
             })
             details[key] = df[df[col].isna()].copy()
 
-    # Exact duplicate rows
     duplicate_mask = df.duplicated(keep=False)
     duplicate_count = int(df.duplicated(keep="first").sum())
     if duplicate_count:
@@ -40,10 +35,8 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
         })
         details["Duplicate rows"] = df[duplicate_mask].copy()
 
-    # Duplicate values in columns that look like IDs
     for col in df.columns:
         if re.search(r"(^id$|_id$|id$|email|code$)", str(col).lower()):
-            non_null = df[col].dropna()
             dup_mask = df[col].notna() & df[col].duplicated(keep=False)
             count = int(df[col].duplicated(keep="first").sum())
             if count:
@@ -56,8 +49,10 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
                 })
                 details[key] = df[dup_mask].copy()
 
-    # Non-standard column names
-    bad_columns = [str(c) for c in df.columns if str(c).strip() != str(c) or " " in str(c) or str(c) != str(c).lower()]
+    bad_columns = [
+        str(c) for c in df.columns
+        if str(c).strip() != str(c) or " " in str(c) or str(c) != str(c).lower()
+    ]
     if bad_columns:
         findings.append({
             "issue": "Inconsistent column names",
@@ -67,7 +62,6 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
         })
         details["Inconsistent column names"] = pd.DataFrame({"column_name": bad_columns})
 
-    # Numeric outliers using 1.5 * IQR; avoid constant / tiny columns
     for col in df.select_dtypes(include="number").columns:
         series = df[col].dropna()
         if len(series) < 4:

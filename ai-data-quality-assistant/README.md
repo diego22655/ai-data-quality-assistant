@@ -1,19 +1,22 @@
 # AI Data Quality Assistant
 
-A small portfolio project that helps analysts inspect CSV files for common data-quality issues. It combines transparent, reproducible validation rules with a simple Streamlit interface.
-
-> **Current scope:** The current version uses deterministic, rule-based checks. It does **not** call an AI model yet. The name describes the planned direction; the README and demo are explicit about what is implemented today.
+A portfolio project that helps analysts inspect CSV files for common data-quality issues. It combines transparent validation rules, a Streamlit interface, downloadable reports, automated tests, and an optional AI explanation feature.
 
 ## Features
 
-- Upload a CSV file in a browser interface
-- Detect missing values
-- Detect exact duplicate rows
-- Flag repeated values in likely identifier columns (such as `customer_id` or `email`)
-- Flag inconsistent column naming conventions
-- Flag potential numeric outliers using the 1.5 × IQR rule
+- Upload a CSV file through a browser interface
+- Detect missing values, exact duplicate rows, repeated values in likely identifier columns, inconsistent column names, and potential numeric outliers using the IQR rule
 - Inspect affected rows and download JSON/CSV reports
-- Provide recommendations that explain the checks and their limitations
+- Run automated tests for the validation logic and report generation
+- Optionally generate a natural-language explanation from summarized findings using the OpenAI API
+
+## Important implementation details
+
+- Rule-based checks are deterministic and remain the source of truth.
+- The AI feature is optional and requires an API key configured as a Streamlit secret named `OPENAI_API_KEY`.
+- The application sends only summarized findings and recommendations to the model—not the uploaded CSV rows.
+- Never commit API keys to GitHub. API usage may incur charges depending on your provider account and current pricing.
+- A potential outlier is not automatically an error; review it with business context.
 
 ## Run locally
 
@@ -28,33 +31,39 @@ Activate the environment:
 - macOS/Linux: `source .venv/bin/activate`
 - Windows PowerShell: `.venv\Scripts\Activate.ps1`
 
-Install dependencies and launch the app:
+Install dependencies and run:
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open the local URL printed in your terminal (usually `http://localhost:8501`).
+## Run tests
+
+```bash
+pytest -q
+```
+
+## Enable AI explanations
+
+For local development, set an environment variable named `OPENAI_API_KEY` before running Streamlit. For Streamlit Community Cloud, open the app's settings and add this under **Secrets**:
+
+```toml
+OPENAI_API_KEY = "your_api_key_here"
+```
+
+Use your own valid API key. Do not paste it into source code or commit it to the repository. The app continues to work without a key; the AI button remains disabled.
 
 ## Try the sample data
 
-Upload `sample_data/customers.csv` from the app. It intentionally includes examples of missing values, duplicate records, repeated customer IDs, inconsistent column names, and a potential outlier.
-
-## Checks and limitations
-
-- A missing value is not always invalid; business context determines the correct treatment.
-- Repeated IDs are flagged only when column names resemble identifiers. This is a heuristic, not a schema guarantee.
-- IQR outliers are review candidates, not automatic errors.
-- The app does not modify or overwrite uploaded source data.
-- No data is intentionally sent to an external service by this application.
-- This version does not use a generative AI API. AI-based explanations can be added later as a separate, clearly labeled feature.
+Upload `sample_data/customers.csv`. It intentionally includes missing values, duplicate rows, repeated identifiers, inconsistent column names, and a potential numeric outlier.
 
 ## Project structure
 
 ```text
 ai-data-quality-assistant/
 ├── app.py
+├── ai_explainer.py
 ├── data_quality.py
 ├── requirements.txt
 ├── README.md
@@ -64,17 +73,10 @@ ai-data-quality-assistant/
     └── test_data_quality.py
 ```
 
-## Next improvements
-
-1. Add configurable rules per column (required fields, allowed ranges, uniqueness).
-2. Add unit tests and continuous integration.
-3. Add optional AI explanations with an explicit user-provided API key, after reviewing privacy and cost implications.
-4. Add a deployed demo so reviewers can try the workflow without installing Python.
-
 ## Portfolio summary
 
 **Problem:** Data-quality issues can silently affect analytics, dashboards, and downstream pipelines.
 
-**Approach:** Provide a repeatable first-pass validation workflow that identifies common issues, surfaces affected records, and exports findings for review.
+**Approach:** Provide a repeatable first-pass validation workflow that identifies common issues, surfaces affected records, exports findings, and optionally explains the findings in plain language.
 
-**Skills demonstrated:** Python, pandas, data validation, ETL concepts, reporting, and lightweight app development.
+**Skills demonstrated:** Python, pandas, data validation, testing, reporting, Streamlit, API integration, and responsible handling of API credentials.
