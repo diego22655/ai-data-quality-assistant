@@ -1,4 +1,4 @@
-"""Rule-based data-quality checks for tabular data."""
+"""Deterministic data-quality checks and configurable column-level rules."""
 from __future__ import annotations
 
 import re
@@ -8,7 +8,6 @@ import pandas as pd
 
 
 def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str, pd.DataFrame]]:
-    """Return a list of findings and a dictionary of inspectable affected records."""
     findings: list[dict[str, Any]] = []
     details: dict[str, pd.DataFrame] = {}
 
@@ -86,23 +85,103 @@ def analyze_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str,
     return findings, details
 
 
+def validate_with_rules(
+    df: pd.DataFrame, rules: dict[str, Any]
+) -> tuple[list[dict[str, Any]], dict[str, pd.DataFrame]]:
+    """Validate a dataframe against user-configured rules."""
+    findings: list[dict[str, Any]] = []
+    details: dict[str, pd.DataFrame] = {}
+
+    for col in rules.get("required_columns", []):
+        if col not in df.columns:
+            continue
+        mask = df[col].isna()
+        count = int(mask.sum())
+        if count:
+            key = f"Required column missing values — {col}"
+            findings.append({
+                "issue": "Required column missing values",
+                "column": str(col),
+                "count": count,
+                "details": f"{count} row(s) have missing values in required column '{col}'.",
+            })
+            details[key] = df[mask].copy()
+
+    for col in rules.get("unique_columns", []):
+        if col not in df.columns:
+            continue
+        mask = df[col].notna() & df[col].duplicated(keep=False)
+        count = int(df[col].duplicated(keep="first").sum())
+        if count:
+            key = f"Custom uniqueness rule — {col}"
+            findings.append({
+                "issue": "Custom uniqueness rule",
+                "column": str(col),
+                "count": count,
+                "details": f"{count} repeated value(s) violate the configured uniqueness rule for '{col}'.",
+            })
+            details[key] = df[mask].copy()
+
+    for col, limits in rules.get("numeric_ranges", {}).items():
+        if col not in df.columns or not pd.api.types.is_numeric_dtype(df[col]):
+            continue
+        lower = limits.get("min")
+        upper = limits.get("max")
+        mask = pd.Series(False, index=df.index)
+        if lower is not None:
+            mask |= df[col].notna() & (df[col] < lower)
+        if upper is not None:
+            mask |= df[col].notna() & (df[col] > upper)
+        count = int(mask.sum())
+        if count:
+            key = f"Numeric range violation — {col}"
+            findings.append({
+                "issue": "Numeric range violation",
+                "column": str(col),
+                "count": count,
+                "details": f"{count} value(s) fall outside the configured range [{lower}, {upper}] for '{col}'.",
+            })
+            details[key] = df[mask].copy()
+
+    for col, allowed in rules.get("allowed_values", {}).items():
+        if col not in df.columns or not allowed:
+            continue
+        non_missing = df[col].notna()
+        mask = non_missing & ~df[col].astype(str).isin([str(v) for v in allowed])
+        count = int(mask.sum())
+        if count:
+            key = f"Disallowed values — {col}"
+            findings.append({
+                "issue": "Disallowed values",
+                "column": str(col),
+                "count": count,
+                "details": f"{count} value(s) are not in the configured allowed-value list for '{col}'.",
+            })
+            details[key] = df[mask].copy()
+
+    return findings, details
+
+
 def build_summary(df: pd.DataFrame, findings: list[dict[str, Any]]) -> dict[str, Any]:
-    """Create transparent, rule-based recommendations from the findings."""
     recommendations: list[str] = []
     issue_names = {item["issue"] for item in findings}
-    if "Missing values" in issue_names:
-        recommendations.append("Review missing values by column and decide whether to fill, flag, or leave them blank based on business rules.")
+    if issue_names & {"Missing values", "Required column missing values"}:
+        recommendations.append("Review missing values and decide whether to fill, flag, or leave them blank based on business rules.")
     if "Duplicate rows" in issue_names:
         recommendations.append("Inspect repeated rows before removing them; confirm whether they represent accidental duplicates or valid repeated events.")
-    if "Repeated identifier" in issue_names:
+    if issue_names & {"Repeated identifier", "Custom uniqueness rule"}:
         recommendations.append("Check uniqueness rules for identifier columns and resolve collisions at the source when possible.")
     if "Inconsistent column names" in issue_names:
         recommendations.append("Standardize column names to lowercase snake_case before downstream transformations.")
     if "Potential numeric outliers" in issue_names:
         recommendations.append("Review potential outliers with domain context; an unusual value is not automatically an error.")
+    if "Numeric range violation" in issue_names:
+        recommendations.append("Review numeric range violations against documented business constraints before changing values.")
+    if "Disallowed values" in issue_names:
+        recommendations.append("Check categorical values against the approved domain or reference list.")
     if not recommendations:
-        recommendations.append("No issues were detected by the configured checks. Add domain-specific validation rules for stronger assurance.")
-    recommendations.append("Record any corrections and validation rules so the data-quality process is repeatable.")
+        recommendations.append("No issues were detected by the configured checks. Consider adding domain-specific rules for stronger assurance.")
+    recommendations.append("Record corrections and validation rules so the data-quality process is repeatable.")
     return {
         "row_count": int(len(df)),
         "column_count": int(len(df.columns)),

@@ -1,22 +1,26 @@
 # AI Data Quality Assistant
 
-A portfolio project that helps analysts inspect CSV files for common data-quality issues. It combines transparent validation rules, a Streamlit interface, downloadable reports, automated tests, and an optional AI explanation feature.
+A portfolio project that profiles CSV files using deterministic data-quality checks and configurable column-level rules. It includes a Streamlit UI, affected-row inspection, JSON/CSV exports, and automated tests. It does not require a paid AI API.
 
 ## Features
 
-- Upload a CSV file through a browser interface
-- Detect missing values, exact duplicate rows, repeated values in likely identifier columns, inconsistent column names, and potential numeric outliers using the IQR rule
-- Inspect affected rows and download JSON/CSV reports
-- Run automated tests for the validation logic and report generation
-- Optionally generate a natural-language explanation from summarized findings using the OpenAI API
+### Standard checks
+- Missing values
+- Exact duplicate rows
+- Repeated values in likely identifier columns
+- Inconsistent column names
+- Potential numeric outliers using the IQR rule
 
-## Important implementation details
+### Configurable rules
+- Required columns (no missing values)
+- Unique columns
+- Numeric minimum/maximum ranges
+- Allowed values for categorical columns
 
-- Rule-based checks are deterministic and remain the source of truth.
-- The AI feature is optional and requires an API key configured as a Streamlit secret named `OPENAI_API_KEY`.
-- The application sends only summarized findings and recommendations to the model—not the uploaded CSV rows.
-- Never commit API keys to GitHub. API usage may incur charges depending on your provider account and current pricing.
-- A potential outlier is not automatically an error; review it with business context.
+### Reports
+- JSON report with report version, counts, configured rules, findings, and recommendations
+- CSV export of findings
+- Inspectable affected rows for each finding
 
 ## Run locally
 
@@ -24,19 +28,12 @@ Requires Python 3.10 or newer.
 
 ```bash
 python -m venv .venv
-```
-
-Activate the environment:
-
-- macOS/Linux: `source .venv/bin/activate`
-- Windows PowerShell: `.venv\Scripts\Activate.ps1`
-
-Install dependencies and run:
-
-```bash
+source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+On Windows PowerShell, activate the environment with `.venv\\Scripts\\Activate.ps1`.
 
 ## Run tests
 
@@ -44,26 +41,19 @@ streamlit run app.py
 pytest -q
 ```
 
-## Enable AI explanations
+## Privacy and limitations
 
-For local development, set an environment variable named `OPENAI_API_KEY` before running Streamlit. For Streamlit Community Cloud, open the app's settings and add this under **Secrets**:
-
-```toml
-OPENAI_API_KEY = "your_api_key_here"
-```
-
-Use your own valid API key. Do not paste it into source code or commit it to the repository. The app continues to work without a key; the AI button remains disabled.
-
-## Try the sample data
-
-Upload `sample_data/customers.csv`. It intentionally includes missing values, duplicate rows, repeated identifiers, inconsistent column names, and a potential numeric outlier.
+- Validation is deterministic and runs locally in the app process.
+- The uploaded CSV is not sent to an external AI provider.
+- A potential outlier is a review candidate, not automatically an error.
+- Custom rules are selected for each uploaded file and are not saved between sessions.
+- Rule configuration uses column names from the uploaded CSV.
 
 ## Project structure
 
 ```text
 ai-data-quality-assistant/
 ├── app.py
-├── ai_explainer.py
 ├── data_quality.py
 ├── requirements.txt
 ├── README.md
@@ -75,8 +65,8 @@ ai-data-quality-assistant/
 
 ## Portfolio summary
 
-**Problem:** Data-quality issues can silently affect analytics, dashboards, and downstream pipelines.
+**Problem:** Data-quality issues can silently affect analytics, dashboards, and downstream data pipelines.
 
-**Approach:** Provide a repeatable first-pass validation workflow that identifies common issues, surfaces affected records, exports findings, and optionally explains the findings in plain language.
+**Approach:** A repeatable first-pass profiling workflow that detects common issues, lets users define business constraints, surfaces affected records, and exports structured reports.
 
-**Skills demonstrated:** Python, pandas, data validation, testing, reporting, Streamlit, API integration, and responsible handling of API credentials.
+**Skills demonstrated:** Python, pandas, data validation, unit testing, Streamlit, rule-based profiling, and report generation.

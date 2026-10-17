@@ -1,28 +1,30 @@
 import io
 import json
-import os
 
 import pandas as pd
 import streamlit as st
 
-from data_quality import analyze_dataframe, build_summary
-from ai_explainer import explain_findings
+from data_quality import analyze_dataframe, build_summary, validate_with_rules
 
 st.set_page_config(page_title="AI Data Quality Assistant", page_icon="🔎", layout="wide")
 st.title("🔎 AI Data Quality Assistant")
 st.write(
-    "Upload a CSV file to detect common data-quality issues, inspect affected rows, "
-    "and download a report. Deterministic rules identify findings; an optional AI explanation "
-    "can help summarize them when an API key is configured."
+    "A lightweight data-quality profiler for CSV files. Run standard checks, optionally configure "
+    "column-level rules, inspect affected records, and export a report."
 )
 
 uploaded = st.file_uploader("Upload a CSV file", type=["csv"])
 if uploaded is None:
-    st.info("No file uploaded yet. Try `sample_data/customers.csv` from the GitHub repository.")
-    st.subheader("What this tool checks")
+    st.info("Upload a CSV file to begin. You can use `sample_data/customers.csv` from the repository.")
+    st.subheader("Standard checks")
     st.markdown(
         "- Missing values\n- Duplicate rows\n- Repeated values in likely identifier columns\n"
-        "- Inconsistent column names\n- Potential numeric outliers using the IQR rule"
+        "- Inconsistent column names\n- Potential numeric outliers (IQR)"
+    )
+    st.subheader("Custom rules")
+    st.markdown(
+        "- Required columns\n- Unique columns\n- Numeric minimum and maximum values\n"
+        "- Allowed values for categorical columns"
     )
     st.stop()
 
@@ -33,10 +35,55 @@ except Exception as exc:
     st.stop()
 
 if df.empty:
-    st.warning("The uploaded CSV has no data rows.")
+    st.warning("The CSV has column headers but no data rows.")
     st.stop()
 
-issues, details = analyze_dataframe(df)
+st.subheader("Configure column-level rules")
+available_columns = [str(c) for c in df.columns]
+with st.expander("Required columns", expanded=True):
+    required_columns = st.multiselect(
+        "These columns must not contain missing values",
+        options=available_columns,
+        help="Rows with missing values in selected columns will be reported.",
+    )
+with st.expander("Unique columns"):
+    unique_columns = st.multiselect(
+        "These columns should contain unique values",
+        options=available_columns,
+        help="Repeated non-empty values will be reported.",
+    )
+with st.expander("Numeric ranges"):
+    numeric_columns = [str(c) for c in df.select_dtypes(include="number").columns]
+    range_columns = st.multiselect("Select numeric columns to constrain", options=numeric_columns)
+    numeric_ranges = {}
+    for col in range_columns:
+        c1, c2 = st.columns(2)
+        min_val = c1.number_input(f"{col}: minimum", value=float(df[col].min()) if df[col].notna().any() else 0.0, key=f"min_{col}")
+        max_val = c2.number_input(f"{col}: maximum", value=float(df[col].max()) if df[col].notna().any() else 100.0, key=f"max_{col}")
+        numeric_ranges[col] = {"min": min_val, "max": max_val}
+with st.expander("Allowed categorical values"):
+    categorical_columns = [str(c) for c in df.columns if df[c].dtype == "object"]
+    allowed_columns = st.multiselect("Select columns with allowed values", options=categorical_columns)
+    allowed_values = {}
+    for col in allowed_columns:
+        raw = st.text_input(
+            f"Allowed values for {col} (comma-separated)",
+            placeholder="e.g. Peru, Chile, Colombia",
+            key=f"allowed_{col}",
+        )
+        allowed_values[col] = [value.strip() for value in raw.split(",") if value.strip()]
+
+rules = {
+    "required_columns": required_columns,
+    "unique_columns": unique_columns,
+    "numeric_ranges": numeric_ranges,
+    "allowed_values": allowed_values,
+}
+
+standard_findings, standard_details = analyze_dataframe(df)
+custom_findings, custom_details = validate_with_rules(df, rules)
+issues = standard_findings + custom_findings
+details = {**standard_details, **custom_details}
 summary = build_summary(df, issues)
 
 col1, col2, col3, col4 = st.columns(4)
@@ -48,12 +95,12 @@ col4.metric("Total findings", sum(item["count"] for item in issues))
 st.subheader("Data preview")
 st.dataframe(df.head(100), use_container_width=True)
 
-st.subheader("Quality summary")
-quality_df = pd.DataFrame(issues) if issues else pd.DataFrame(
-    [{"issue": "No issues detected", "column": "—", "count": 0,
-      "details": "The configured checks found no issues."}]
-)
-st.dataframe(quality_df, use_container_width=True)
+st.subheader("Quality report")
+if issues:
+    report_df = pd.DataFrame(issues)
+    st.dataframe(report_df, use_container_width=True)
+else:
+    st.success("No issues were detected by the standard checks or the custom rules.")
 
 st.subheader("Recommended next steps")
 for recommendation in summary["recommendations"]:
@@ -64,45 +111,35 @@ if details:
     chosen = st.selectbox("Choose a finding to inspect", options=list(details.keys()))
     st.dataframe(details[chosen], use_container_width=True)
 
-st.subheader("AI explanation (optional)")
-st.caption(
-    "The rule-based findings above are the source of truth. The optional AI feature summarizes "
-    "those findings; it does not replace validation. Configure OPENAI_API_KEY in Streamlit Secrets "
-    "to enable it. Only the findings summary—not the uploaded rows—is sent to the model."
-)
-api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
-if api_key:
-    if st.button("Explain findings with AI"):
-        with st.spinner("Generating explanation..."):
-            try:
-                explanation = explain_findings(issues, summary["recommendations"], api_key)
-                st.markdown(explanation)
-            except Exception:
-                st.error(
-                    "The AI explanation could not be generated. Check the API key, account access, "
-                    "and API usage limits in your provider dashboard."
-                )
-else:
-    st.info("AI explanation is disabled until an API key is configured. The data-quality checks work without it.")
-
 report = {
+    "report_version": "1.0",
     "row_count": int(len(df)),
     "column_count": int(len(df.columns)),
-    "issue_type_count": int(len(issues)),
+    "standard_issue_count": len(standard_findings),
+    "custom_issue_count": len(custom_findings),
+    "total_issue_types": len(issues),
+    "total_findings": int(sum(item["count"] for item in issues)),
+    "rules": rules,
     "findings": issues,
     "recommendations": summary["recommendations"],
 }
-st.download_button(
-    "Download quality report (JSON)",
-    data=json.dumps(report, indent=2, ensure_ascii=False),
+json_bytes = json.dumps(report, indent=2, ensure_ascii=False).encode("utf-8")
+csv_buffer = io.StringIO()
+pd.DataFrame(issues, columns=["issue", "column", "count", "details"]).to_csv(csv_buffer, index=False)
+
+st.subheader("Export reports")
+c1, c2 = st.columns(2)
+c1.download_button(
+    "Download full report (JSON)",
+    data=json_bytes,
     file_name="data_quality_report.json",
     mime="application/json",
+    use_container_width=True,
 )
-csv_buffer = io.StringIO()
-pd.DataFrame(issues).to_csv(csv_buffer, index=False)
-st.download_button(
+c2.download_button(
     "Download findings (CSV)",
     data=csv_buffer.getvalue(),
     file_name="data_quality_findings.csv",
     mime="text/csv",
+    use_container_width=True,
 )
