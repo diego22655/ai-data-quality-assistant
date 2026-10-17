@@ -1,0 +1,8 @@
+customer_id,email,Age,monthly_spend, Country 
+C001,ana@example.com,28,120,Peru
+C002,luis@example.com,35,180,Peru
+C002,luis@example.com,35,180,Peru
+C004,,42,155,Chile
+C005,maria@example.com,,210,Peru
+C006,pablo@example.com,31,9999,Peru
+C007,sofia@example.com,27,135, Peru 
