@@ -1,4 +1,5 @@
 import io
+import json
 import pandas as pd
 import streamlit as st
 from data_quality import analyze_dataframe, build_summary
