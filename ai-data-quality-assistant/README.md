@@ -1,14 +1,13 @@
 # AI Data Quality Assistant
 
-A lightweight CSV data-quality profiler built with Python, pandas, and Streamlit. It combines deterministic checks, configurable business rules, affected-row inspection, structured exports, and automated tests. No paid AI API is required.
+A CSV data-quality profiler built with Python, pandas, and Streamlit. It combines deterministic checks, configurable business rules, affected-row inspection, structured exports, and automated tests. No paid AI API is required.
 
 ## Features
-- Detect missing values, exact duplicate rows, repeated likely identifiers, inconsistent column names, and potential numeric outliers using IQR.
-- Configure required columns, unique columns, numeric ranges, and allowed categorical values.
-- Inspect affected records.
-- Export a JSON report and a CSV findings file.
-- Assign finding IDs and severity labels, and produce an overall `PASS`, `PASS WITH WARNINGS`, or `FAIL` status.
-- Show a distinct affected-row count to avoid simply summing overlapping findings.
+- Missing values, duplicate rows, repeated likely identifiers, inconsistent column names, and potential numeric outliers (IQR).
+- Configurable required columns, unique columns, numeric ranges, and allowed categorical values.
+- Finding IDs unique across standard and custom checks, severity labels, and overall `PASS`, `PASS WITH WARNINGS`, or `FAIL` status.
+- JSON report and CSV findings export; inspect affected records in the UI.
+- Automated tests for standard checks, custom rules, report status, serialization, and global finding IDs.
 
 ## Run locally
 Requires Python 3.10+.
@@ -20,19 +19,13 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-On Windows PowerShell: `.venv\\Scripts\\Activate.ps1`.
+Run tests with `pytest -q`.
 
-## Run tests
-```bash
-pytest -q
-```
+## Severity and status
+High-severity findings produce `FAIL`; medium-severity findings without high-severity findings produce `PASS WITH WARNINGS`; no findings produce `PASS`. These are example defaults and should be aligned with business requirements.
 
-## Interpretation and limitations
-- A high-severity finding causes `FAIL`; medium-severity findings without high-severity findings produce `PASS WITH WARNINGS`; no findings produce `PASS`.
-- Severity levels are example defaults and should be adjusted to match a team's business rules.
-- A potential outlier is a review candidate, not automatically an error.
-- Custom rules are configured for each uploaded file and are not saved between sessions.
-- The application does not send uploaded rows to an external AI service.
+## Privacy and limitations
+The application does not send uploaded rows to an external AI service. A potential outlier is a review candidate, not automatically an error. Custom rules are selected for each uploaded file and are not saved between sessions.
 
 ## Portfolio summary
 **Problem:** Data-quality issues can silently affect analytics, dashboards, and downstream data pipelines.
